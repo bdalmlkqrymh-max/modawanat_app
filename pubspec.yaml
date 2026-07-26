@@ -1,0 +1,17 @@
+name: modawanat_app
+description: نظام مدونة الحسابات
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  url_launcher: ^6.2.5
+  pdf: ^3.10.8
+  printing: ^5.12.0
+
+flutter:
+  uses-material-design: true
