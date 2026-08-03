@@ -1,12 +1,11 @@
-import 'dart:convert'; // ضروري لتحويل البيانات وحفظها
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // حزمة الحفظ الدائم
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
-// تمت إضافة async و ensureInitialized لضمان تهيئة الحفظ قبل بدء التطبيق
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const ModawanatApp());
@@ -41,7 +40,7 @@ class SetupOrLoginRouter extends StatefulWidget {
 }
 
 class _SetupOrLoginRouterState extends State<SetupOrLoginRouter> {
-  bool isLoading = true; // شاشة تحميل مبدئية حتى يتم استرجاع البيانات
+  bool isLoading = true;
   String? storeName;
   String adminPin = '1234';
   String supervisorPin = '0000';
@@ -52,7 +51,6 @@ class _SetupOrLoginRouterState extends State<SetupOrLoginRouter> {
     _loadSetupData();
   }
 
-  // دالة استرجاع بيانات المحل المحفوظة في ذاكرة الهاتف
   Future<void> _loadSetupData() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -72,7 +70,6 @@ class _SetupOrLoginRouterState extends State<SetupOrLoginRouter> {
     if (storeName == null || storeName!.isEmpty) {
       return StoreSetupScreen(
         onSetupComplete: (name, aPin, sPin) async {
-          // حفظ البيانات الجديدة في الذاكرة
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('storeName', name);
           await prefs.setString('adminPin', aPin);
@@ -375,10 +372,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _currentStoreName = widget.storeName;
     _adminPin = widget.adminPin;
     _supervisorPin = widget.supervisorPin;
-    _loadWorkers(); // جلب العمال المحفوظين
+    _loadWorkers();
   }
 
-  // دالة لجلب قائمة العمال من الذاكرة الدائمة
   Future<void> _loadWorkers() async {
     final prefs = await SharedPreferences.getInstance();
     final String? workersData = prefs.getString('workers_list');
@@ -386,36 +382,37 @@ class _HomeScreenState extends State<HomeScreen> {
     if (workersData != null) {
       List<dynamic> decoded = jsonDecode(workersData);
       setState(() {
-        workers = decoded.map((e) => Map<String, dynamic>.from(e)).toList();
+        // قراءة البيانات مع تهيئة القيم الجديدة إن لم تكن موجودة في الحفظ القديم
+        workers = decoded.map((e) {
+          var w = Map<String, dynamic>.from(e);
+          w['totalWithdrawals'] ??= 0.0;
+          w['absencesWithPermission'] ??= 0;
+          w['absencesWithoutPermission'] ??= 0;
+          return w;
+        }).toList();
       });
     } else {
-      // عمال افتراضيين للتجربة في حال كان التطبيق جديد
       setState(() {
-        workers = [
-          {'name': 'محمد', 'phone': '770000000', 'amount': '14500', 'isUp': true, 'id': '1'},
-          {'name': 'أحمد', 'phone': '771111111', 'amount': '0', 'isUp': false, 'id': '2'},
-          {'name': 'رياض', 'phone': '772222222', 'amount': '28500', 'isUp': true, 'id': '3'},
-        ];
+        workers = []; // يبدأ بقائمة فارغة في حال لم يكن هناك حفظ
       });
       _saveWorkers();
     }
   }
 
-  // دالة لحفظ قائمة العمال بعد أي إضافة أو تعديل
   Future<void> _saveWorkers() async {
     final prefs = await SharedPreferences.getInstance();
     String encoded = jsonEncode(workers);
     await prefs.setString('workers_list', encoded);
   }
 
-  // دالة جديدة لحساب الرصيد الإجمالي برمجياً
+  // حساب الرصيد الإجمالي بناءً على الرصيد المتبقي الحقيقي
   String _calculateTotalBalance() {
     double total = 0;
     for (var worker in workers) {
-      // تحويل النص إلى رقم مع تجاهل أي فواصل قد تكون موجودة
-      total += double.tryParse(worker['amount'].toString().replaceAll(',', '')) ?? 0;
+      double initialAmount = double.tryParse(worker['amount'].toString().replaceAll(',', '')) ?? 0;
+      double withdrawals = (worker['totalWithdrawals'] ?? 0).toDouble();
+      total += (initialAmount - withdrawals);
     }
-    // إرجاع الرقم بدون فواصل عشرية إذا كان صحيحاً
     return total.toStringAsFixed(0);
   }
 
@@ -432,22 +429,11 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: 'اسم العامل', prefixIcon: Icon(Icons.person)),
-              ),
+              TextField(controller: nameController, decoration: const InputDecoration(labelText: 'اسم العامل', prefixIcon: Icon(Icons.person))),
               const SizedBox(height: 10),
-              TextField(
-                controller: phoneController,
-                keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(labelText: 'رقم الهاتف', prefixIcon: Icon(Icons.phone)),
-              ),
+              TextField(controller: phoneController, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'رقم الهاتف', prefixIcon: Icon(Icons.phone))),
               const SizedBox(height: 10),
-              TextField(
-                controller: amountController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'الرصيد الابتدائي (ريال)', prefixIcon: Icon(Icons.money)),
-              ),
+              TextField(controller: amountController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'الرصيد الابتدائي/الراتب (ريال)', prefixIcon: Icon(Icons.money))),
             ],
           ),
         ),
@@ -462,11 +448,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     'name': nameController.text,
                     'phone': phoneController.text,
                     'amount': amountController.text.isEmpty ? '0' : amountController.text,
-                    'isUp': true,
                     'id': DateTime.now().millisecondsSinceEpoch.toString(),
+                    'totalWithdrawals': 0.0,
+                    'absencesWithPermission': 0,
+                    'absencesWithoutPermission': 0,
                   });
                 });
-                _saveWorkers(); // حفظ في الذاكرة
+                _saveWorkers();
                 Navigator.pop(ctx);
                 _showSnackbar('تمت إضافة العامل [${nameController.text}] بنجاح!');
               } else {
@@ -474,6 +462,78 @@ class _HomeScreenState extends State<HomeScreen> {
               }
             },
             child: const Text('إضافة'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditWorkerDialog(int index) {
+    final worker = workers[index];
+    final nameController = TextEditingController(text: worker['name']);
+    final phoneController = TextEditingController(text: worker['phone']);
+    final amountController = TextEditingController(text: worker['amount'].toString());
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تعديل بيانات العامل'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: nameController, decoration: const InputDecoration(labelText: 'اسم العامل', prefixIcon: Icon(Icons.person))),
+              const SizedBox(height: 10),
+              TextField(controller: phoneController, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'رقم الهاتف', prefixIcon: Icon(Icons.phone))),
+              const SizedBox(height: 10),
+              TextField(controller: amountController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'الرصيد الابتدائي (ريال)', prefixIcon: Icon(Icons.money))),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00A2E8)),
+            onPressed: () {
+              if (nameController.text.isNotEmpty && phoneController.text.isNotEmpty) {
+                setState(() {
+                  workers[index]['name'] = nameController.text;
+                  workers[index]['phone'] = phoneController.text;
+                  workers[index]['amount'] = amountController.text.isEmpty ? '0' : amountController.text;
+                });
+                _saveWorkers();
+                Navigator.pop(ctx);
+                _showSnackbar('تم تعديل بيانات العامل بنجاح!');
+              } else {
+                _showSnackbar('يرجى ملء كافة الحقول');
+              }
+            },
+            child: const Text('حفظ التعديلات'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteWorker(int index) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تأكيد الحذف', style: TextStyle(color: Colors.red)),
+        content: Text('هل أنت متأكد من أنك تريد حذف حساب العامل [${workers[index]['name']}]؟ لن يمكنك التراجع عن هذا الإجراء.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              setState(() {
+                workers.removeAt(index);
+              });
+              _saveWorkers();
+              Navigator.pop(ctx);
+              _showSnackbar('تم حذف العامل نهائياً.');
+            },
+            child: const Text('حذف العامل'),
           ),
         ],
       ),
@@ -493,22 +553,11 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: storeController,
-                decoration: const InputDecoration(labelText: 'اسم المحل / المنشأة', prefixIcon: Icon(Icons.store)),
-              ),
+              TextField(controller: storeController, decoration: const InputDecoration(labelText: 'اسم المحل / المنشأة', prefixIcon: Icon(Icons.store))),
               const SizedBox(height: 10),
-              TextField(
-                controller: adminPinController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'رمز مرور المدير (PIN)', prefixIcon: Icon(Icons.lock)),
-              ),
+              TextField(controller: adminPinController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'رمز مرور المدير (PIN)', prefixIcon: Icon(Icons.lock))),
               const SizedBox(height: 10),
-              TextField(
-                controller: supPinController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'رمز مرور المشرف (PIN)', prefixIcon: Icon(Icons.lock_outline)),
-              ),
+              TextField(controller: supPinController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'رمز مرور المشرف (PIN)', prefixIcon: Icon(Icons.lock_outline))),
             ],
           ),
         ),
@@ -539,7 +588,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showGoogleDriveDialog(bool isUpload) {
     final emailController = TextEditingController(text: linkedEmail != 'غير مربوط بأي إيميل' ? linkedEmail : '');
-
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -556,16 +604,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             const Text('أدخل إيميل جوجل (Gmail) المرتبط بالحسابات:'),
             const SizedBox(height: 10),
-            TextField(
-              controller: emailController,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(
-                labelText: 'إيميل Gmail الخاص بك',
-                hintText: 'example@gmail.com',
-                prefixIcon: Icon(Icons.email),
-                border: OutlineInputBorder(),
-              ),
-            ),
+            TextField(controller: emailController, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'إيميل Gmail الخاص بك', hintText: 'example@gmail.com', prefixIcon: Icon(Icons.email), border: OutlineInputBorder())),
           ],
         ),
         actions: [
@@ -578,11 +617,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   linkedEmail = emailController.text;
                 });
                 Navigator.pop(ctx);
-                if (isUpload) {
-                  _showSnackbar('تم رفع النسخة الاحتياطية لـ [$_currentStoreName] إلى: $linkedEmail');
-                } else {
-                  _showSnackbar('تم استعادة البيانات بنجاح لـ [$_currentStoreName] من: $linkedEmail');
-                }
+                _showSnackbar(isUpload ? 'تم رفع النسخة الاحتياطية لـ [$_currentStoreName] إلى: $linkedEmail' : 'تم استعادة البيانات بنجاح لـ [$_currentStoreName] من: $linkedEmail');
               } else {
                 _showSnackbar('يرجى إدخال إيميل Gmail صحيح');
               }
@@ -595,9 +630,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showSnackbar(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.black87),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.black87));
   }
 
   @override
@@ -608,9 +641,7 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: EdgeInsets.zero,
           children: [
             DrawerHeader(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(colors: [Color(0xFF00A2E8), Color(0xFF0080FF)]),
-              ),
+              decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF00A2E8), Color(0xFF0080FF)])),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -628,48 +659,16 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             if (widget.userRole == 'المدير الرئيسي') ...[
-              ListTile(
-                leading: const Icon(Icons.settings, color: Colors.orange),
-                title: const Text('إعدادات المنشأة وكلمات المرور'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showStoreSettingsDialog();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.cloud_upload, color: Colors.blue),
-                title: const Text('حفظ نسخة احتياطية (Google Drive)'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showGoogleDriveDialog(true);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.cloud_download, color: Colors.green),
-                title: const Text('استعادة النسخة (Google Drive)'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showGoogleDriveDialog(false);
-                },
-              ),
+              ListTile(leading: const Icon(Icons.settings, color: Colors.orange), title: const Text('إعدادات المنشأة وكلمات المرور'), onTap: () { Navigator.pop(context); _showStoreSettingsDialog(); }),
+              ListTile(leading: const Icon(Icons.cloud_upload, color: Colors.blue), title: const Text('حفظ نسخة احتياطية (Google Drive)'), onTap: () { Navigator.pop(context); _showGoogleDriveDialog(true); }),
+              ListTile(leading: const Icon(Icons.cloud_download, color: Colors.green), title: const Text('استعادة النسخة (Google Drive)'), onTap: () { Navigator.pop(context); _showGoogleDriveDialog(false); }),
               const Divider(),
             ],
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.red),
               title: const Text('تسجيل الخروج'),
               onTap: () {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => LoginScreen(
-                      storeName: _currentStoreName,
-                      adminPin: _adminPin,
-                      supervisorPin: _supervisorPin,
-                      onResetStore: () {},
-                      onUpdatePins: widget.onSettingsUpdated,
-                    ),
-                  ),
-                );
+                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => LoginScreen(storeName: _currentStoreName, adminPin: _adminPin, supervisorPin: _supervisorPin, onResetStore: () {}, onUpdatePins: widget.onSettingsUpdated)));
               },
             ),
           ],
@@ -692,6 +691,13 @@ class _HomeScreenState extends State<HomeScreen> {
               itemCount: workers.length,
               itemBuilder: (context, index) {
                 final item = workers[index];
+                
+                // حساب الرصيد المتبقي للعامل
+                double initialAmount = double.tryParse(item['amount'].toString()) ?? 0;
+                double withdrawals = (item['totalWithdrawals'] ?? 0).toDouble();
+                double remaining = initialAmount - withdrawals;
+                bool isUp = remaining >= 0;
+
                 return Card(
                   margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   child: ListTile(
@@ -703,26 +709,42 @@ class _HomeScreenState extends State<HomeScreen> {
                             worker: item,
                             role: widget.userRole,
                             storeName: _currentStoreName,
+                            onWorkerUpdated: (updatedWorker) {
+                              // تحديث بيانات العامل عند تسجيل سحبية أو غياب
+                              setState(() {
+                                int idx = workers.indexWhere((w) => w['id'] == updatedWorker['id']);
+                                if (idx != -1) workers[idx] = updatedWorker;
+                              });
+                              _saveWorkers();
+                            },
                           ),
                         ),
                       );
                     },
                     leading: Container(
                       padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: item['isUp'] ? Colors.green[50] : Colors.red[50],
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Icon(
-                        item['isUp'] ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                        color: item['isUp'] ? Colors.green[700] : Colors.red[700],
-                      ),
+                      decoration: BoxDecoration(color: isUp ? Colors.green[50] : Colors.red[50], borderRadius: BorderRadius.circular(6)),
+                      child: Icon(isUp ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: isUp ? Colors.green[700] : Colors.red[700]),
                     ),
                     title: Text(item['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
                     subtitle: Text('رقم الهاتف: ${item['phone']}'),
-                    trailing: Text(
-                      '${item['amount']} ريال',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('${remaining.toStringAsFixed(0)} ريال', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: isUp ? Colors.green[800] : Colors.red[800])),
+                        if (widget.userRole == 'المدير الرئيسي') 
+                          PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert, color: Colors.grey),
+                            onSelected: (value) {
+                              if (value == 'edit') _showEditWorkerDialog(index);
+                              else if (value == 'delete') _deleteWorker(index);
+                            },
+                            itemBuilder: (context) => [
+                              const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, color: Colors.blue, size: 20), SizedBox(width: 8), Text('تعديل بيانات العامل')])),
+                              const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 20), SizedBox(width: 8), Text('حذف حساب العامل', style: TextStyle(color: Colors.red))])),
+                            ],
+                          ),
+                      ],
                     ),
                   ),
                 );
@@ -737,17 +759,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (widget.userRole == 'المدير الرئيسي')
                   Container(
                     decoration: BoxDecoration(color: const Color(0xFF00A2E8), borderRadius: BorderRadius.circular(6)),
-                    child: IconButton(
-                      icon: const Icon(Icons.person_add, color: Colors.white),
-                      onPressed: _showAddWorkerDialog,
-                    ),
+                    child: IconButton(icon: const Icon(Icons.person_add, color: Colors.white), onPressed: _showAddWorkerDialog),
                   ),
                 const SizedBox(width: 10),
-                Expanded(
-                  // هنا يتم استدعاء الدالة وحساب الإجمالي تلقائياً
-                  child: Text('الرصيد الإجمالي: ${_calculateTotalBalance()} ريال', 
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                ),
+                Expanded(child: Text('الرصيد الإجمالي: ${_calculateTotalBalance()} ريال', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
               ],
             ),
           ),
@@ -761,12 +776,14 @@ class WorkerDetailsPage extends StatefulWidget {
   final Map<String, dynamic> worker;
   final String role;
   final String storeName;
+  final Function(Map<String, dynamic>) onWorkerUpdated;
 
   const WorkerDetailsPage({
     super.key,
     required this.worker,
     required this.role,
     required this.storeName,
+    required this.onWorkerUpdated,
   });
 
   @override
@@ -785,36 +802,21 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
     super.dispose();
   }
 
-  // إرسال رسالة نصية مباشرة من الجوال
   Future<void> _sendDirectSms(String phoneNumber, String messageText) async {
-    final Uri smsUri = Uri(
-      scheme: 'sms',
-      path: phoneNumber,
-      queryParameters: <String, String>{
-        'body': messageText,
-      },
-    );
-
+    final Uri smsUri = Uri(scheme: 'sms', path: phoneNumber, queryParameters: <String, String>{'body': messageText});
     try {
       if (await canLaunchUrl(smsUri)) {
         await launchUrl(smsUri);
       } else {
-        await launchUrl(smsUri, mode: LaunchMode.externalApplication); // إجبار النظام للفتح
+        await launchUrl(smsUri, mode: LaunchMode.externalApplication); 
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('حدث خطأ أثناء فتح تطبيق الرسائل النصية')),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('حدث خطأ أثناء فتح تطبيق الرسائل النصية')));
     }
   }
 
-  // دالة الـ PDF المعالجة لإظهار اللغة العربية بوضوح من اليمين لليسار
-  Future<void> _generatePdfReport() async {
+  Future<void> _generatePdfReport(double remainingBalance) async {
     final pdf = pw.Document();
-
-    // تحميل خطوط Cairo لدعم النصوص العربية والابتعاد عن المربعات
     final arabicFont = await PdfGoogleFonts.cairoMedium();
     final arabicBoldFont = await PdfGoogleFonts.cairoBold();
 
@@ -827,13 +829,7 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                pw.Header(
-                  level: 0,
-                  child: pw.Text(
-                    '${widget.storeName} - تقرير كشف حساب شهري', 
-                    style: pw.TextStyle(font: arabicBoldFont, fontSize: 18, color: PdfColors.blue800)
-                  ),
-                ),
+                pw.Header(level: 0, child: pw.Text('${widget.storeName} - تقرير كشف حساب شهري', style: pw.TextStyle(font: arabicBoldFont, fontSize: 18, color: PdfColors.blue800))),
                 pw.SizedBox(height: 10),
                 pw.Text('اسم العامل: ${widget.worker['name']}', style: pw.TextStyle(font: arabicFont, fontSize: 14)),
                 pw.Text('رقم الهاتف: ${widget.worker['phone']}', style: pw.TextStyle(font: arabicFont, fontSize: 14)),
@@ -845,10 +841,10 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
                   headerDecoration: const pw.BoxDecoration(color: PdfColors.blue700),
                   data: <List<String>>[
                     ['البيان', 'التفاصيل / القيمة'],
-                    ['أيام الغياب (بإذن)', '3 أيام'],
-                    ['أيام الغياب (بدون إذن)', '2 أيام'],
-                    ['إجمالي السحبيات والخصومات', '35,000 ريال'],
-                    ['المبلغ المتبقي الصافي للشهر', '15,000 ريال'],
+                    ['أيام الغياب (بإذن)', '${widget.worker['absencesWithPermission'] ?? 0} أيام'],
+                    ['أيام الغياب (بدون إذن)', '${widget.worker['absencesWithoutPermission'] ?? 0} أيام'],
+                    ['إجمالي السحبيات والخصومات', '${(widget.worker['totalWithdrawals'] ?? 0).toStringAsFixed(0)} ريال'],
+                    ['المبلغ المتبقي الصافي للشهر', '${remainingBalance.toStringAsFixed(0)} ريال'],
                   ],
                 ),
                 pw.SizedBox(height: 30),
@@ -868,13 +864,18 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
   }
 
   void _showSnackbar(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.black87),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.black87));
   }
 
   @override
   Widget build(BuildContext context) {
+    // حساب القيم الحقيقية من الحساب
+    int absWithPerm = widget.worker['absencesWithPermission'] ?? 0;
+    int absNoPerm = widget.worker['absencesWithoutPermission'] ?? 0;
+    double initialAmount = double.tryParse(widget.worker['amount'].toString()) ?? 0;
+    double totalWithdrawals = (widget.worker['totalWithdrawals'] ?? 0).toDouble();
+    double remainingBalance = initialAmount - totalWithdrawals;
+
     return DefaultTabController(
       length: 3,
       child: Scaffold(
@@ -906,12 +907,19 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
                     icon: const Icon(Icons.send),
                     label: const Text('حفظ وإرسال إشعار السحب SMS'),
                     onPressed: () {
-                      if (_withdrawController.text.isNotEmpty) {
+                      double amount = double.tryParse(_withdrawController.text) ?? 0;
+                      if (amount > 0) {
+                        // إضافة المبلغ المسحوب إلى إجمالي السحبيات
+                        widget.worker['totalWithdrawals'] = totalWithdrawals + amount;
+                        widget.onWorkerUpdated(widget.worker); // حفظ التغييرات
+
                         String msg = '[${widget.storeName}] تم تسجيل سحبية بمبلغ ${_withdrawController.text} ريال للعامل [${widget.worker['name']}] بواسطة [${widget.role}].';
                         _sendDirectSms(widget.worker['phone'], msg);
                         _withdrawController.clear();
+                        _showSnackbar('تم حفظ السحبية بنجاح وخصمها من الرصيد');
+                        setState(() {}); // تحديث الشاشة
                       } else {
-                        _showSnackbar('يرجى كتابة المبلغ المسحوب أولاً');
+                        _showSnackbar('يرجى كتابة مبلغ صحيح أولاً');
                       }
                     },
                   )
@@ -929,20 +937,8 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
                     elevation: 1,
                     child: Column(
                       children: [
-                        RadioListTile<String>(
-                          title: const Text('غياب بإذن'),
-                          value: 'بإذن',
-                          groupValue: _absenceType,
-                          activeColor: const Color(0xFF00A2E8),
-                          onChanged: (val) => setState(() => _absenceType = val!),
-                        ),
-                        RadioListTile<String>(
-                          title: const Text('غياب بدون إذن'),
-                          value: 'بدون إذن',
-                          groupValue: _absenceType,
-                          activeColor: Colors.red,
-                          onChanged: (val) => setState(() => _absenceType = val!),
-                        ),
+                        RadioListTile<String>(title: const Text('غياب بإذن'), value: 'بإذن', groupValue: _absenceType, activeColor: const Color(0xFF00A2E8), onChanged: (val) => setState(() => _absenceType = val!)),
+                        RadioListTile<String>(title: const Text('غياب بدون إذن'), value: 'بدون إذن', groupValue: _absenceType, activeColor: Colors.red, onChanged: (val) => setState(() => _absenceType = val!)),
                       ],
                     ),
                   ),
@@ -958,9 +954,19 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
                     label: const Text('حفظ وإرسال إشعار الغياب SMS'),
                     onPressed: () {
                       if (_absenceReasonController.text.isNotEmpty) {
+                        // تحديث أيام الغياب
+                        if (_absenceType == 'بإذن') {
+                          widget.worker['absencesWithPermission'] = absWithPerm + 1;
+                        } else {
+                          widget.worker['absencesWithoutPermission'] = absNoPerm + 1;
+                        }
+                        widget.onWorkerUpdated(widget.worker); // حفظ التغييرات
+
                         String msg = '[${widget.storeName}] تم تسجيل غياب [$_absenceType] للعامل [${widget.worker['name']}]. السبب: ${_absenceReasonController.text}. المسجل: [${widget.role}].';
                         _sendDirectSms(widget.worker['phone'], msg);
                         _absenceReasonController.clear();
+                        _showSnackbar('تم حفظ يوم الغياب بنجاح');
+                        setState(() {}); // تحديث الشاشة
                       } else {
                         _showSnackbar('يرجى كتابة سبب الغياب أولاً');
                       }
@@ -969,40 +975,41 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
                 ],
               ),
             ),
+            // التقرير الشهري الديناميكي (الأرقام الحقيقية)
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: ListView(
                 children: [
-                  const Card(
+                  Card(
                     elevation: 2,
                     child: ListTile(
-                      leading: Icon(Icons.event_available, color: Colors.blue),
-                      title: Text('إجمالي الغياب (بإذن)'),
-                      trailing: Text('3 أيام', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      leading: const Icon(Icons.event_available, color: Colors.blue),
+                      title: const Text('إجمالي الغياب (بإذن)'),
+                      trailing: Text('$absWithPerm أيام', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     ),
                   ),
-                  const Card(
+                  Card(
                     elevation: 2,
                     child: ListTile(
-                      leading: Icon(Icons.event_busy, color: Colors.red),
-                      title: Text('إجمالي الغياب (بدون إذن)'),
-                      trailing: Text('2 أيام', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.red)),
+                      leading: const Icon(Icons.event_busy, color: Colors.red),
+                      title: const Text('إجمالي الغياب (بدون إذن)'),
+                      trailing: Text('$absNoPerm أيام', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.red)),
                     ),
                   ),
-                  const Card(
+                  Card(
                     elevation: 2,
                     child: ListTile(
-                      leading: Icon(Icons.money_off, color: Colors.orange),
-                      title: Text('إجمالي الخصومات والسحبيات'),
-                      trailing: Text('35,000 ريال', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.orange)),
+                      leading: const Icon(Icons.money_off, color: Colors.orange),
+                      title: const Text('إجمالي الخصومات والسحبيات'),
+                      trailing: Text('${totalWithdrawals.toStringAsFixed(0)} ريال', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.orange)),
                     ),
                   ),
-                  const Card(
+                  Card(
                     elevation: 2,
                     child: ListTile(
-                      leading: Icon(Icons.account_balance_wallet, color: Colors.green),
-                      title: Text('باقي الحساب النهائي للشهر'),
-                      trailing: Text('15,000 ريال', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)),
+                      leading: const Icon(Icons.account_balance_wallet, color: Colors.green),
+                      title: const Text('باقي الحساب النهائي للشهر'),
+                      trailing: Text('${remainingBalance.toStringAsFixed(0)} ريال', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -1017,7 +1024,7 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
                           icon: const Icon(Icons.sms),
                           label: const Text('إرسال SMS'),
                           onPressed: () {
-                            String msg = '[${widget.storeName}] التقرير الشهري للعامل [${widget.worker['name']}]: باقي حسابك النهائي هو 15,000 ريال.';
+                            String msg = '[${widget.storeName}] التقرير الشهري للعامل [${widget.worker['name']}]: إجمالي سحبياتك (${totalWithdrawals.toStringAsFixed(0)})، باقي حسابك النهائي هو ${remainingBalance.toStringAsFixed(0)} ريال.';
                             _sendDirectSms(widget.worker['phone'], msg);
                           },
                         ),
@@ -1032,7 +1039,7 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
                           icon: const Icon(Icons.picture_as_pdf),
                           label: const Text('تصدير PDF'),
                           onPressed: () {
-                            _generatePdfReport();
+                            _generatePdfReport(remainingBalance);
                           },
                         ),
                       ),
