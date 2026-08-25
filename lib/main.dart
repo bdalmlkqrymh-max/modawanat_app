@@ -382,7 +382,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (workersData != null) {
       List<dynamic> decoded = jsonDecode(workersData);
       setState(() {
-        // قراءة البيانات مع تهيئة القيم الجديدة إن لم تكن موجودة في الحفظ القديم
         workers = decoded.map((e) {
           var w = Map<String, dynamic>.from(e);
           w['totalWithdrawals'] ??= 0.0;
@@ -393,7 +392,7 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     } else {
       setState(() {
-        workers = []; // يبدأ بقائمة فارغة في حال لم يكن هناك حفظ
+        workers = [];
       });
       _saveWorkers();
     }
@@ -405,7 +404,6 @@ class _HomeScreenState extends State<HomeScreen> {
     await prefs.setString('workers_list', encoded);
   }
 
-  // حساب الرصيد الإجمالي بناءً على الرصيد المتبقي الحقيقي
   String _calculateTotalBalance() {
     double total = 0;
     for (var worker in workers) {
@@ -692,7 +690,6 @@ class _HomeScreenState extends State<HomeScreen> {
               itemBuilder: (context, index) {
                 final item = workers[index];
                 
-                // حساب الرصيد المتبقي للعامل
                 double initialAmount = double.tryParse(item['amount'].toString()) ?? 0;
                 double withdrawals = (item['totalWithdrawals'] ?? 0).toDouble();
                 double remaining = initialAmount - withdrawals;
@@ -710,7 +707,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             role: widget.userRole,
                             storeName: _currentStoreName,
                             onWorkerUpdated: (updatedWorker) {
-                              // تحديث بيانات العامل عند تسجيل سحبية أو غياب
                               setState(() {
                                 int idx = workers.indexWhere((w) => w['id'] == updatedWorker['id']);
                                 if (idx != -1) workers[idx] = updatedWorker;
@@ -869,7 +865,6 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    // حساب القيم الحقيقية من الحساب
     int absWithPerm = widget.worker['absencesWithPermission'] ?? 0;
     int absNoPerm = widget.worker['absencesWithoutPermission'] ?? 0;
     double initialAmount = double.tryParse(widget.worker['amount'].toString()) ?? 0;
@@ -909,15 +904,14 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
                     onPressed: () {
                       double amount = double.tryParse(_withdrawController.text) ?? 0;
                       if (amount > 0) {
-                        // إضافة المبلغ المسحوب إلى إجمالي السحبيات
                         widget.worker['totalWithdrawals'] = totalWithdrawals + amount;
-                        widget.onWorkerUpdated(widget.worker); // حفظ التغييرات
+                        widget.onWorkerUpdated(widget.worker);
 
                         String msg = '[${widget.storeName}] تم تسجيل سحبية بمبلغ ${_withdrawController.text} ريال للعامل [${widget.worker['name']}] بواسطة [${widget.role}].';
                         _sendDirectSms(widget.worker['phone'], msg);
                         _withdrawController.clear();
                         _showSnackbar('تم حفظ السحبية بنجاح وخصمها من الرصيد');
-                        setState(() {}); // تحديث الشاشة
+                        setState(() {});
                       } else {
                         _showSnackbar('يرجى كتابة مبلغ صحيح أولاً');
                       }
@@ -954,19 +948,18 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
                     label: const Text('حفظ وإرسال إشعار الغياب SMS'),
                     onPressed: () {
                       if (_absenceReasonController.text.isNotEmpty) {
-                        // تحديث أيام الغياب
                         if (_absenceType == 'بإذن') {
                           widget.worker['absencesWithPermission'] = absWithPerm + 1;
                         } else {
                           widget.worker['absencesWithoutPermission'] = absNoPerm + 1;
                         }
-                        widget.onWorkerUpdated(widget.worker); // حفظ التغييرات
+                        widget.onWorkerUpdated(widget.worker);
 
                         String msg = '[${widget.storeName}] تم تسجيل غياب [$_absenceType] للعامل [${widget.worker['name']}]. السبب: ${_absenceReasonController.text}. المسجل: [${widget.role}].';
                         _sendDirectSms(widget.worker['phone'], msg);
                         _absenceReasonController.clear();
                         _showSnackbar('تم حفظ يوم الغياب بنجاح');
-                        setState(() {}); // تحديث الشاشة
+                        setState(() {});
                       } else {
                         _showSnackbar('يرجى كتابة سبب الغياب أولاً');
                       }
@@ -975,7 +968,6 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
                 ],
               ),
             ),
-            // التقرير الشهري الديناميكي (الأرقام الحقيقية)
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: ListView(
