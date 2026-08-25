@@ -1,7 +1,3 @@
-// مكاتب فايربيز الأساسية
-import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,22 +6,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // تهيئة الاتصال بقاعدة بيانات فايربيز
-  await Firebase.initializeApp(
-    options: FirebaseOptions(
-      apiKey: "AIzaSyBuhfzujYgE3rblfbvE8KKM_uarlznuYcM",
-      authDomain: "casualstore-f1d9e.firebaseapp.com",
-      projectId: "casualstore-f1d9e",
-      storageBucket: "casualstore-f1d9e.firebasestorage.app",
-      messagingSenderId: "21469700209",
-      appId: "1:21469700209:web:652dc587001b27f124fbd0",
-    ),
-  );
-
   runApp(const ModawanatApp());
 }
 
@@ -380,7 +362,9 @@ class _HomeScreenState extends State<HomeScreen> {
   late String _currentStoreName;
   late String _adminPin;
   late String _supervisorPin;
-  final String linkedEmail = 'متصل بـ Firebase';
+  String linkedEmail = 'غير مربوط بأي إيميل';
+
+  List<Map<String, dynamic>> workers = [];
 
   @override
   void initState() {
@@ -388,6 +372,48 @@ class _HomeScreenState extends State<HomeScreen> {
     _currentStoreName = widget.storeName;
     _adminPin = widget.adminPin;
     _supervisorPin = widget.supervisorPin;
+    _loadWorkers();
+  }
+
+  Future<void> _loadWorkers() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? workersData = prefs.getString('workers_list');
+    
+    if (workersData != null) {
+      List<dynamic> decoded = jsonDecode(workersData);
+      setState(() {
+        // قراءة البيانات مع تهيئة القيم الجديدة إن لم تكن موجودة في الحفظ القديم
+        workers = decoded.map((e) {
+          var w = Map<String, dynamic>.from(e);
+          w['totalWithdrawals'] ??= 0.0;
+          w['absencesWithPermission'] ??= 0;
+          w['absencesWithoutPermission'] ??= 0;
+          return w;
+        }).toList();
+      });
+    } else {
+      setState(() {
+        workers = []; // يبدأ بقائمة فارغة في حال لم يكن هناك حفظ
+      });
+      _saveWorkers();
+    }
+  }
+
+  Future<void> _saveWorkers() async {
+    final prefs = await SharedPreferences.getInstance();
+    String encoded = jsonEncode(workers);
+    await prefs.setString('workers_list', encoded);
+  }
+
+  // حساب الرصيد الإجمالي بناءً على الرصيد المتبقي الحقيقي
+  String _calculateTotalBalance() {
+    double total = 0;
+    for (var worker in workers) {
+      double initialAmount = double.tryParse(worker['amount'].toString().replaceAll(',', '')) ?? 0;
+      double withdrawals = (worker['totalWithdrawals'] ?? 0).toDouble();
+      total += (initialAmount - withdrawals);
+    }
+    return total.toStringAsFixed(0);
   }
 
   void _showAddWorkerDialog() {
@@ -417,16 +443,18 @@ class _HomeScreenState extends State<HomeScreen> {
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00A2E8)),
             onPressed: () {
               if (nameController.text.isNotEmpty && phoneController.text.isNotEmpty) {
-                FirebaseFirestore.instance.collection('workers').add({
-                  'name': nameController.text,
-                  'phone': phoneController.text,
-                  'amount': amountController.text.isEmpty ? '0' : amountController.text,
-                  'totalWithdrawals': 0.0,
-                  'absencesWithPermission': 0,
-                  'absencesWithoutPermission': 0,
-                  'storeName': _currentStoreName,
-                  'createdAt': FieldValue.serverTimestamp(),
+                setState(() {
+                  workers.add({
+                    'name': nameController.text,
+                    'phone': phoneController.text,
+                    'amount': amountController.text.isEmpty ? '0' : amountController.text,
+                    'id': DateTime.now().millisecondsSinceEpoch.toString(),
+                    'totalWithdrawals': 0.0,
+                    'absencesWithPermission': 0,
+                    'absencesWithoutPermission': 0,
+                  });
                 });
+                _saveWorkers();
                 Navigator.pop(ctx);
                 _showSnackbar('تمت إضافة العامل [${nameController.text}] بنجاح!');
               } else {
@@ -440,10 +468,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showEditWorkerDialog(String docId, Map<String, dynamic> currentData) {
-    final nameController = TextEditingController(text: currentData['name']);
-    final phoneController = TextEditingController(text: currentData['phone']);
-    final amountController = TextEditingController(text: currentData['amount'].toString());
+  void _showEditWorkerDialog(int index) {
+    final worker = workers[index];
+    final nameController = TextEditingController(text: worker['name']);
+    final phoneController = TextEditingController(text: worker['phone']);
+    final amountController = TextEditingController(text: worker['amount'].toString());
 
     showDialog(
       context: context,
@@ -467,11 +496,12 @@ class _HomeScreenState extends State<HomeScreen> {
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00A2E8)),
             onPressed: () {
               if (nameController.text.isNotEmpty && phoneController.text.isNotEmpty) {
-                FirebaseFirestore.instance.collection('workers').doc(docId).update({
-                  'name': nameController.text,
-                  'phone': phoneController.text,
-                  'amount': amountController.text.isEmpty ? '0' : amountController.text,
+                setState(() {
+                  workers[index]['name'] = nameController.text;
+                  workers[index]['phone'] = phoneController.text;
+                  workers[index]['amount'] = amountController.text.isEmpty ? '0' : amountController.text;
                 });
+                _saveWorkers();
                 Navigator.pop(ctx);
                 _showSnackbar('تم تعديل بيانات العامل بنجاح!');
               } else {
@@ -485,18 +515,21 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _deleteWorker(String docId, String workerName) {
+  void _deleteWorker(int index) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('تأكيد الحذف', style: TextStyle(color: Colors.red)),
-        content: Text('هل أنت متأكد من أنك تريد حذف حساب العامل [$workerName]؟ لن يمكنك التراجع عن هذا الإجراء.'),
+        content: Text('هل أنت متأكد من أنك تريد حذف حساب العامل [${workers[index]['name']}]؟ لن يمكنك التراجع عن هذا الإجراء.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () {
-              FirebaseFirestore.instance.collection('workers').doc(docId).delete();
+              setState(() {
+                workers.removeAt(index);
+              });
+              _saveWorkers();
               Navigator.pop(ctx);
               _showSnackbar('تم حذف العامل نهائياً.');
             },
@@ -553,6 +586,49 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _showGoogleDriveDialog(bool isUpload) {
+    final emailController = TextEditingController(text: linkedEmail != 'غير مربوط بأي إيميل' ? linkedEmail : '');
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(isUpload ? Icons.cloud_upload : Icons.cloud_download, color: const Color(0xFF00A2E8)),
+            const SizedBox(width: 8),
+            Text(isUpload ? 'حفظ نسخة في Google Drive' : 'استعادة نسخة من Google Drive'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('أدخل إيميل جوجل (Gmail) المرتبط بالحسابات:'),
+            const SizedBox(height: 10),
+            TextField(controller: emailController, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'إيميل Gmail الخاص بك', hintText: 'example@gmail.com', prefixIcon: Icon(Icons.email), border: OutlineInputBorder())),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00A2E8)),
+            onPressed: () {
+              if (emailController.text.contains('@')) {
+                setState(() {
+                  linkedEmail = emailController.text;
+                });
+                Navigator.pop(ctx);
+                _showSnackbar(isUpload ? 'تم رفع النسخة الاحتياطية لـ [$_currentStoreName] إلى: $linkedEmail' : 'تم استعادة البيانات بنجاح لـ [$_currentStoreName] من: $linkedEmail');
+              } else {
+                _showSnackbar('يرجى إدخال إيميل Gmail صحيح');
+              }
+            },
+            child: Text(isUpload ? 'حفظ الآن' : 'استعادة الآن'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showSnackbar(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.black87));
   }
@@ -578,12 +654,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Text('المستخدم الحالي: ${widget.userRole}', style: const TextStyle(color: Colors.white, fontSize: 12)),
                   ),
                   const SizedBox(height: 6),
-                  Text('الحالة: $linkedEmail', style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                  Text('الإيميل: $linkedEmail', style: const TextStyle(color: Colors.white70, fontSize: 11)),
                 ],
               ),
             ),
             if (widget.userRole == 'المدير الرئيسي') ...[
               ListTile(leading: const Icon(Icons.settings, color: Colors.orange), title: const Text('إعدادات المنشأة وكلمات المرور'), onTap: () { Navigator.pop(context); _showStoreSettingsDialog(); }),
+              ListTile(leading: const Icon(Icons.cloud_upload, color: Colors.blue), title: const Text('حفظ نسخة احتياطية (Google Drive)'), onTap: () { Navigator.pop(context); _showGoogleDriveDialog(true); }),
+              ListTile(leading: const Icon(Icons.cloud_download, color: Colors.green), title: const Text('استعادة النسخة (Google Drive)'), onTap: () { Navigator.pop(context); _showGoogleDriveDialog(false); }),
               const Divider(),
             ],
             ListTile(
@@ -606,124 +684,106 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('workers')
-            .where('storeName', isEqualTo: _currentStoreName)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return const Center(child: Text('حدث خطأ في جلب البيانات من السيرفر'));
-          }
+      body: Column(
+        children: [
+          Expanded(
+            child: ListView.builder(
+              itemCount: workers.length,
+              itemBuilder: (context, index) {
+                final item = workers[index];
+                
+                // حساب الرصيد المتبقي للعامل
+                double initialAmount = double.tryParse(item['amount'].toString()) ?? 0;
+                double withdrawals = (item['totalWithdrawals'] ?? 0).toDouble();
+                double remaining = initialAmount - withdrawals;
+                bool isUp = remaining >= 0;
 
-          final docs = snapshot.data!.docs;
-          
-          double totalBalance = 0;
-          for (var doc in docs) {
-            final data = doc.data() as Map<String, dynamic>;
-            double initialAmount = double.tryParse(data['amount'].toString()) ?? 0;
-            double withdrawals = (data['totalWithdrawals'] ?? 0).toDouble();
-            totalBalance += (initialAmount - withdrawals);
-          }
-
-          return Column(
-            children: [
-              Expanded(
-                child: docs.isEmpty
-                    ? const Center(child: Text('لا يوجد عمال مسجلين بعد.'))
-                    : ListView.builder(
-                        itemCount: docs.length,
-                        itemBuilder: (context, index) {
-                          final doc = docs[index];
-                          final item = doc.data() as Map<String, dynamic>;
-                          final docId = doc.id;
-
-                          double initialAmount = double.tryParse(item['amount'].toString()) ?? 0;
-                          double withdrawals = (item['totalWithdrawals'] ?? 0).toDouble();
-                          double remaining = initialAmount - withdrawals;
-                          bool isUp = remaining >= 0;
-
-                          return Card(
-                            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            child: ListTile(
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => WorkerDetailsPage(
-                                      docId: docId,
-                                      role: widget.userRole,
-                                      storeName: _currentStoreName,
-                                    ),
-                                  ),
-                                );
-                              },
-                              leading: Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(color: isUp ? Colors.green[50] : Colors.red[50], borderRadius: BorderRadius.circular(6)),
-                                child: Icon(isUp ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: isUp ? Colors.green[700] : Colors.red[700]),
-                              ),
-                              title: Text(item['name'] ?? 'بدون اسم', style: const TextStyle(fontWeight: FontWeight.bold)),
-                              subtitle: Text('رقم الهاتف: ${item['phone']}'),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text('${remaining.toStringAsFixed(0)} ريال', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: isUp ? Colors.green[800] : Colors.red[800])),
-                                  if (widget.userRole == 'المدير الرئيسي') 
-                                    PopupMenuButton<String>(
-                                      icon: const Icon(Icons.more_vert, color: Colors.grey),
-                                      onSelected: (value) {
-                                        if (value == 'edit') _showEditWorkerDialog(docId, item);
-                                        else if (value == 'delete') _deleteWorker(docId, item['name']);
-                                      },
-                                      itemBuilder: (context) => [
-                                        const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, color: Colors.blue, size: 20), SizedBox(width: 8), Text('تعديل بيانات العامل')])),
-                                        const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 20), SizedBox(width: 8), Text('حذف حساب العامل', style: TextStyle(color: Colors.red))])),
-                                      ],
-                                    ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-              Container(
-                color: const Color(0xFFCFD8DC),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Row(
-                  children: [
-                    if (widget.userRole == 'المدير الرئيسي')
-                      Container(
-                        decoration: BoxDecoration(color: const Color(0xFF00A2E8), borderRadius: BorderRadius.circular(6)),
-                        child: IconButton(icon: const Icon(Icons.person_add, color: Colors.white), onPressed: _showAddWorkerDialog),
-                      ),
-                    const SizedBox(width: 10),
-                    Expanded(child: Text('الرصيد الإجمالي: ${totalBalance.toStringAsFixed(0)} ريال', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
-                  ],
-                ),
-              ),
-            ],
-          );
-        },
+                return Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  child: ListTile(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => WorkerDetailsPage(
+                            worker: item,
+                            role: widget.userRole,
+                            storeName: _currentStoreName,
+                            onWorkerUpdated: (updatedWorker) {
+                              // تحديث بيانات العامل عند تسجيل سحبية أو غياب
+                              setState(() {
+                                int idx = workers.indexWhere((w) => w['id'] == updatedWorker['id']);
+                                if (idx != -1) workers[idx] = updatedWorker;
+                              });
+                              _saveWorkers();
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                    leading: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(color: isUp ? Colors.green[50] : Colors.red[50], borderRadius: BorderRadius.circular(6)),
+                      child: Icon(isUp ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: isUp ? Colors.green[700] : Colors.red[700]),
+                    ),
+                    title: Text(item['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('رقم الهاتف: ${item['phone']}'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('${remaining.toStringAsFixed(0)} ريال', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: isUp ? Colors.green[800] : Colors.red[800])),
+                        if (widget.userRole == 'المدير الرئيسي') 
+                          PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert, color: Colors.grey),
+                            onSelected: (value) {
+                              if (value == 'edit') _showEditWorkerDialog(index);
+                              else if (value == 'delete') _deleteWorker(index);
+                            },
+                            itemBuilder: (context) => [
+                              const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, color: Colors.blue, size: 20), SizedBox(width: 8), Text('تعديل بيانات العامل')])),
+                              const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 20), SizedBox(width: 8), Text('حذف حساب العامل', style: TextStyle(color: Colors.red))])),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          Container(
+            color: const Color(0xFFCFD8DC),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                if (widget.userRole == 'المدير الرئيسي')
+                  Container(
+                    decoration: BoxDecoration(color: const Color(0xFF00A2E8), borderRadius: BorderRadius.circular(6)),
+                    child: IconButton(icon: const Icon(Icons.person_add, color: Colors.white), onPressed: _showAddWorkerDialog),
+                  ),
+                const SizedBox(width: 10),
+                Expanded(child: Text('الرصيد الإجمالي: ${_calculateTotalBalance()} ريال', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
 class WorkerDetailsPage extends StatefulWidget {
-  final String docId;
+  final Map<String, dynamic> worker;
   final String role;
   final String storeName;
+  final Function(Map<String, dynamic>) onWorkerUpdated;
 
   const WorkerDetailsPage({
     super.key,
-    required this.docId,
+    required this.worker,
     required this.role,
     required this.storeName,
+    required this.onWorkerUpdated,
   });
 
   @override
@@ -755,7 +815,7 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
     }
   }
 
-  Future<void> _generatePdfReport(Map<String, dynamic> workerData, double remainingBalance) async {
+  Future<void> _generatePdfReport(double remainingBalance) async {
     final pdf = pw.Document();
     final arabicFont = await PdfGoogleFonts.cairoMedium();
     final arabicBoldFont = await PdfGoogleFonts.cairoBold();
@@ -771,8 +831,8 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
               children: [
                 pw.Header(level: 0, child: pw.Text('${widget.storeName} - تقرير كشف حساب شهري', style: pw.TextStyle(font: arabicBoldFont, fontSize: 18, color: PdfColors.blue800))),
                 pw.SizedBox(height: 10),
-                pw.Text('اسم العامل: ${workerData['name']}', style: pw.TextStyle(font: arabicFont, fontSize: 14)),
-                pw.Text('رقم الهاتف: ${workerData['phone']}', style: pw.TextStyle(font: arabicFont, fontSize: 14)),
+                pw.Text('اسم العامل: ${widget.worker['name']}', style: pw.TextStyle(font: arabicFont, fontSize: 14)),
+                pw.Text('رقم الهاتف: ${widget.worker['phone']}', style: pw.TextStyle(font: arabicFont, fontSize: 14)),
                 pw.SizedBox(height: 20),
                 pw.TableHelper.fromTextArray(
                   context: context,
@@ -781,9 +841,9 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
                   headerDecoration: const pw.BoxDecoration(color: PdfColors.blue700),
                   data: <List<String>>[
                     ['البيان', 'التفاصيل / القيمة'],
-                    ['أيام الغياب (بإذن)', '${workerData['absencesWithPermission'] ?? 0} أيام'],
-                    ['أيام الغياب (بدون إذن)', '${workerData['absencesWithoutPermission'] ?? 0} أيام'],
-                    ['إجمالي السحبيات والخصومات', '${(workerData['totalWithdrawals'] ?? 0).toStringAsFixed(0)} ريال'],
+                    ['أيام الغياب (بإذن)', '${widget.worker['absencesWithPermission'] ?? 0} أيام'],
+                    ['أيام الغياب (بدون إذن)', '${widget.worker['absencesWithoutPermission'] ?? 0} أيام'],
+                    ['إجمالي السحبيات والخصومات', '${(widget.worker['totalWithdrawals'] ?? 0).toStringAsFixed(0)} ريال'],
                     ['المبلغ المتبقي الصافي للشهر', '${remainingBalance.toStringAsFixed(0)} ريال'],
                   ],
                 ),
@@ -799,7 +859,7 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
 
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdf.save(),
-      name: 'تقرير_${workerData['name']}.pdf',
+      name: 'تقرير_${widget.worker['name']}.pdf',
     );
   }
 
@@ -809,192 +869,188 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('workers').doc(widget.docId).snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-        
-        final workerData = snapshot.data!.data() as Map<String, dynamic>?;
-        if (workerData == null) return const Scaffold(body: Center(child: Text('تم حذف العامل')));
+    // حساب القيم الحقيقية من الحساب
+    int absWithPerm = widget.worker['absencesWithPermission'] ?? 0;
+    int absNoPerm = widget.worker['absencesWithoutPermission'] ?? 0;
+    double initialAmount = double.tryParse(widget.worker['amount'].toString()) ?? 0;
+    double totalWithdrawals = (widget.worker['totalWithdrawals'] ?? 0).toDouble();
+    double remainingBalance = initialAmount - totalWithdrawals;
 
-        int absWithPerm = int.tryParse(workerData['absencesWithPermission'].toString()) ?? 0;
-        int absNoPerm = int.tryParse(workerData['absencesWithoutPermission'].toString()) ?? 0;
-        double initialAmount = double.tryParse(workerData['amount'].toString()) ?? 0;
-        double totalWithdrawals = (workerData['totalWithdrawals'] ?? 0).toDouble();
-        double remainingBalance = initialAmount - totalWithdrawals;
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF00A2E8),
+          title: Text('كشف حساب: ${widget.worker['name']}'),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'تسجيل سحبية'),
+              Tab(text: 'تسجيل غياب'),
+              Tab(text: 'التقرير الشهري'),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          children: [
+            SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _withdrawController,
+                    decoration: const InputDecoration(labelText: 'المبلغ المسحوب (ريال)', border: OutlineInputBorder()),
+                    keyboardType: TextInputType.number,
+                  ),
+                  const SizedBox(height: 15),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00A2E8), minimumSize: const Size.fromHeight(45)),
+                    icon: const Icon(Icons.send),
+                    label: const Text('حفظ وإرسال إشعار السحب SMS'),
+                    onPressed: () {
+                      double amount = double.tryParse(_withdrawController.text) ?? 0;
+                      if (amount > 0) {
+                        // إضافة المبلغ المسحوب إلى إجمالي السحبيات
+                        widget.worker['totalWithdrawals'] = totalWithdrawals + amount;
+                        widget.onWorkerUpdated(widget.worker); // حفظ التغييرات
 
-        return DefaultTabController(
-          length: 3,
-          child: Scaffold(
-            appBar: AppBar(
-              backgroundColor: const Color(0xFF00A2E8),
-              title: Text('كشف حساب: ${workerData['name']}'),
-              bottom: const TabBar(
-                tabs: [
-                  Tab(text: 'تسجيل سحبية'),
-                  Tab(text: 'تسجيل غياب'),
-                  Tab(text: 'التقرير الشهري'),
+                        String msg = '[${widget.storeName}] تم تسجيل سحبية بمبلغ ${_withdrawController.text} ريال للعامل [${widget.worker['name']}] بواسطة [${widget.role}].';
+                        _sendDirectSms(widget.worker['phone'], msg);
+                        _withdrawController.clear();
+                        _showSnackbar('تم حفظ السحبية بنجاح وخصمها من الرصيد');
+                        setState(() {}); // تحديث الشاشة
+                      } else {
+                        _showSnackbar('يرجى كتابة مبلغ صحيح أولاً');
+                      }
+                    },
+                  )
                 ],
               ),
             ),
-            body: TabBarView(
-              children: [
-                SingleChildScrollView(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      TextField(
-                        controller: _withdrawController,
-                        decoration: const InputDecoration(labelText: 'المبلغ المسحوب (ريال)', border: OutlineInputBorder()),
-                        keyboardType: TextInputType.number,
-                      ),
-                      const SizedBox(height: 15),
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00A2E8), minimumSize: const Size.fromHeight(45)),
-                        icon: const Icon(Icons.send),
-                        label: const Text('حفظ في السيرفر وإرسال SMS'),
-                        onPressed: () async {
-                          double amount = double.tryParse(_withdrawController.text) ?? 0;
-                          if (amount > 0) {
-                            await FirebaseFirestore.instance.collection('workers').doc(widget.docId).update({
-                              'totalWithdrawals': FieldValue.increment(amount), 
-                            });
-                            
-                            String msg = '[${widget.storeName}] تم تسجيل سحبية بمبلغ ${_withdrawController.text} ريال للعامل [${workerData['name']}] بواسطة [${widget.role}].';
-                            _sendDirectSms(workerData['phone'], msg);
-                            _withdrawController.clear();
-                            _showSnackbar('تم حفظ السحبية ورفعها للإنترنت بنجاح');
-                          } else {
-                            _showSnackbar('يرجى كتابة مبلغ صحيح أولاً');
-                          }
-                        },
-                      )
-                    ],
+            SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('نوع الغياب:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 8),
+                  Card(
+                    elevation: 1,
+                    child: Column(
+                      children: [
+                        RadioListTile<String>(title: const Text('غياب بإذن'), value: 'بإذن', groupValue: _absenceType, activeColor: const Color(0xFF00A2E8), onChanged: (val) => setState(() => _absenceType = val!)),
+                        RadioListTile<String>(title: const Text('غياب بدون إذن'), value: 'بدون إذن', groupValue: _absenceType, activeColor: Colors.red, onChanged: (val) => setState(() => _absenceType = val!)),
+                      ],
+                    ),
                   ),
-                ),
-                SingleChildScrollView(
-                  padding: const円以上,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('نوع الغياب:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      const SizedBox(height: 8),
-                      Card(
-                        elevation: 1,
-                        child: Column(
-                          children: [
-                            RadioListTile<String>(title: const Text('غياب بإذن'), value: 'بإذن', groupValue: _absenceType, activeColor: const Color(0xFF00A2E8), onChanged: (val) => setState(() => _absenceType = val!)),
-                            RadioListTile<String>(title: const Text('غياب بدون إذن'), value: 'بدون إذن', groupValue: _absenceType, activeColor: Colors.red, onChanged: (val) => setState(() => _absenceType = val!)),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      TextField(
-                        controller: _absenceReasonController,
-                        decoration: const InputDecoration(labelText: 'السبب والتفاصيل (مثال: مريض، سفر...)', border: OutlineInputBorder()),
-                      ),
-                      const SizedBox(height: 15),
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, minimumSize: const Size.fromHeight(45)),
-                        icon: const Icon(Icons.sms),
-                        label: const Text('حفظ في السيرفر وإرسال SMS'),
-                        onPressed: () async {
-                          if (_absenceReasonController.text.isNotEmpty) {
-                            String fieldName = _absenceType == 'بإذن' ? 'absencesWithPermission' : 'absencesWithoutPermission';
-                            
-                            await FirebaseFirestore.instance.collection('workers').doc(widget.docId).update({
-                              fieldName: FieldValue.increment(1),
-                            });
-                            
-                            String msg = '[${widget.storeName}] تم تسجيل غياب [$_absenceType] للعامل [${workerData['name']}]. السبب: ${_absenceReasonController.text}. المسجل: [${widget.role}].';
-                            _sendDirectSms(workerData['phone'], msg);
-                            _absenceReasonController.clear();
-                            _showSnackbar('تم حفظ الغياب ورفعه للإنترنت بنجاح');
-                          } else {
-                            _showSnackbar('يرجى كتابة سبب الغياب أولاً');
-                          }
-                        },
-                      )
-                    ],
+                  const SizedBox(height: 15),
+                  TextField(
+                    controller: _absenceReasonController,
+                    decoration: const InputDecoration(labelText: 'السبب والتفاصيل (مثال: مريض، سفر...)', border: OutlineInputBorder()),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: ListView(
-                    children: [
-                      Card(
-                        elevation: 2,
-                        child: ListTile(
-                          leading: const Icon(Icons.event_available, color: Colors.blue),
-                          title: const Text('إجمالي الغياب (بإذن)'),
-                          trailing: Text('$absWithPerm أيام', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        ),
-                      ),
-                      Card(
-                        elevation: 2,
-                        child: ListTile(
-                          leading: const Icon(Icons.event_busy, color: Colors.red),
-                          title: const Text('إجمالي الغياب (بدون إذن)'),
-                          trailing: Text('$absNoPerm أيام', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.red)),
-                        ),
-                      ),
-                      Card(
-                        elevation: 2,
-                        child: ListTile(
-                          leading: const Icon(Icons.money_off, color: Colors.orange),
-                          title: const Text('إجمالي الخصومات والسحبيات'),
-                          trailing: Text('${totalWithdrawals.toStringAsFixed(0)} ريال', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.orange)),
-                        ),
-                      ),
-                      Card(
-                        elevation: 2,
-                        child: ListTile(
-                          leading: const Icon(Icons.account_balance_wallet, color: Colors.green),
-                          title: const Text('باقي الحساب النهائي للشهر'),
-                          trailing: Text('${remainingBalance.toStringAsFixed(0)} ريال', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF00A2E8),
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                              ),
-                              icon: const Icon(Icons.sms),
-                              label: const Text('إرسال SMS'),
-                              onPressed: () {
-                                String msg = '[${widget.storeName}] التقرير الشهري للعامل [${workerData['name']}]: إجمالي سحبياتك (${totalWithdrawals.toStringAsFixed(0)})، باقي حسابك النهائي هو ${remainingBalance.toStringAsFixed(0)} ريال.';
-                                _sendDirectSms(workerData['phone'], msg);
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.redAccent,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                              ),
-                              icon: const Icon(Icons.picture_as_pdf),
-                              label: const Text('تصدير PDF'),
-                              onPressed: () {
-                                _generatePdfReport(workerData, remainingBalance);
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+                  const SizedBox(height: 15),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, minimumSize: const Size.fromHeight(45)),
+                    icon: const Icon(Icons.sms),
+                    label: const Text('حفظ وإرسال إشعار الغياب SMS'),
+                    onPressed: () {
+                      if (_absenceReasonController.text.isNotEmpty) {
+                        // تحديث أيام الغياب
+                        if (_absenceType == 'بإذن') {
+                          widget.worker['absencesWithPermission'] = absWithPerm + 1;
+                        } else {
+                          widget.worker['absencesWithoutPermission'] = absNoPerm + 1;
+                        }
+                        widget.onWorkerUpdated(widget.worker); // حفظ التغييرات
+
+                        String msg = '[${widget.storeName}] تم تسجيل غياب [$_absenceType] للعامل [${widget.worker['name']}]. السبب: ${_absenceReasonController.text}. المسجل: [${widget.role}].';
+                        _sendDirectSms(widget.worker['phone'], msg);
+                        _absenceReasonController.clear();
+                        _showSnackbar('تم حفظ يوم الغياب بنجاح');
+                        setState(() {}); // تحديث الشاشة
+                      } else {
+                        _showSnackbar('يرجى كتابة سبب الغياب أولاً');
+                      }
+                    },
+                  )
+                ],
+              ),
             ),
-          ),
-        );
-      },
+            // التقرير الشهري الديناميكي (الأرقام الحقيقية)
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: ListView(
+                children: [
+                  Card(
+                    elevation: 2,
+                    child: ListTile(
+                      leading: const Icon(Icons.event_available, color: Colors.blue),
+                      title: const Text('إجمالي الغياب (بإذن)'),
+                      trailing: Text('$absWithPerm أيام', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    ),
+                  ),
+                  Card(
+                    elevation: 2,
+                    child: ListTile(
+                      leading: const Icon(Icons.event_busy, color: Colors.red),
+                      title: const Text('إجمالي الغياب (بدون إذن)'),
+                      trailing: Text('$absNoPerm أيام', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.red)),
+                    ),
+                  ),
+                  Card(
+                    elevation: 2,
+                    child: ListTile(
+                      leading: const Icon(Icons.money_off, color: Colors.orange),
+                      title: const Text('إجمالي الخصومات والسحبيات'),
+                      trailing: Text('${totalWithdrawals.toStringAsFixed(0)} ريال', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.orange)),
+                    ),
+                  ),
+                  Card(
+                    elevation: 2,
+                    child: ListTile(
+                      leading: const Icon(Icons.account_balance_wallet, color: Colors.green),
+                      title: const Text('باقي الحساب النهائي للشهر'),
+                      trailing: Text('${remainingBalance.toStringAsFixed(0)} ريال', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF00A2E8),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          icon: const Icon(Icons.sms),
+                          label: const Text('إرسال SMS'),
+                          onPressed: () {
+                            String msg = '[${widget.storeName}] التقرير الشهري للعامل [${widget.worker['name']}]: إجمالي سحبياتك (${totalWithdrawals.toStringAsFixed(0)})، باقي حسابك النهائي هو ${remainingBalance.toStringAsFixed(0)} ريال.';
+                            _sendDirectSms(widget.worker['phone'], msg);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.redAccent,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          icon: const Icon(Icons.picture_as_pdf),
+                          label: const Text('تصدير PDF'),
+                          onPressed: () {
+                            _generatePdfReport(remainingBalance);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
