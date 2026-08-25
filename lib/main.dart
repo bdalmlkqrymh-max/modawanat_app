@@ -15,7 +15,7 @@ void main() async {
   
   // تهيئة الاتصال بقاعدة بيانات فايربيز
   await Firebase.initializeApp(
-    options: const FirebaseOptions(
+    options: FirebaseOptions(
       apiKey: "AIzaSyBuhfzujYgE3rblfbvE8KKM_uarlznuYcM",
       authDomain: "casualstore-f1d9e.firebaseapp.com",
       projectId: "casualstore-f1d9e",
