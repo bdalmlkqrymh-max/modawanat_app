@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "53284659845",
+    "project_id": "casual-e9bca",
+    "storage_bucket": "casual-e9bca.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:53284659845:android:caea3fe6c899e2160f7fec",
+        "android_client_info": {
+          "package_name": "com.example.modawanat_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDelykFy8xRwPDpN1Ic1Jjq1F5fimCT8KQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
