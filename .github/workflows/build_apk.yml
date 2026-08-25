@@ -22,6 +22,10 @@ jobs:
         with:
           channel: 'stable'
 
+      - name: Fix Android v1 Embedding
+        run: |
+          flutter create . --org com.example --project-name modawanat_app --platforms=android
+
       - name: Install dependencies
         run: flutter pub get
 
@@ -33,4 +37,3 @@ jobs:
         with:
           name: app-release
           path: build/app/outputs/flutter-apk/app-release.apk
-
